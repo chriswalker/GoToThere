@@ -1,11 +1,16 @@
 package com.taw.gotothere;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import android.app.Activity;
 import android.app.Dialog;
 import android.app.DialogFragment;
 import android.content.Intent;
 import android.content.IntentSender;
+import android.graphics.Color;
 import android.location.Location;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
@@ -23,6 +28,11 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.Polyline;
+import com.google.android.gms.maps.model.PolylineOptions;
+import com.taw.gotothere.model.DirectionsLeg;
+import com.taw.gotothere.model.DirectionsResult;
+import com.taw.gotothere.model.DirectionsStep;
 
 public class GoToThereActivity extends Activity implements
 	ConnectionCallbacks,
@@ -33,13 +43,21 @@ public class GoToThereActivity extends Activity implements
 	
 	/** Google Map object. */
 	private GoogleMap map;
-	/** Placed marker. */
-	private Marker marker;
+	/** Placed marker for the destination. */
+	private Marker destinationMarker;
+	/** Marker for the start point of the route. */
+	private Marker originMarker;
+	/** Current directions polyline. */
+	private Polyline polyline;
+	
 	/** Request code for return by Services. */
 	private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
 	
 	/** Location client, obtained from Play Services. */
 	private LocationClient locationClient;
+	
+	/** AsyncTask to retrieve directions. */
+	private DirectionsTask directionsTask;
 	
 	/** Click listener for the map. */
 	private OnMapClickListener mapClickListener = new OnMapClickListener() {
@@ -49,18 +67,15 @@ public class GoToThereActivity extends Activity implements
 		 */
 		@Override
 		public void onMapClick(LatLng latLng) {
-			if (marker != null) marker.remove();
+			if (destinationMarker != null) destinationMarker.remove();
 			MarkerOptions opts = new MarkerOptions().
 					position(latLng).
-					title("Navigate to this point").
-					snippet("1.2km from current location").
 					icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED));
-			marker = map.addMarker(opts);
+			destinationMarker = map.addMarker(opts);
 			
 			if (servicesConnected()) {
 				Location loc = locationClient.getLastLocation();
-				Log.d(TAG, "Last known location was: " + loc.getLatitude() + "/" + loc.getLongitude());
-				//getDirections(new LatLng(loc.getLatitude(), loc.getLongitude()), latLng);
+				getDirections(new LatLng(loc.getLatitude(), loc.getLongitude()), latLng);
 			}
 		}
 	};
@@ -80,6 +95,9 @@ public class GoToThereActivity extends Activity implements
         map.setOnMapClickListener(mapClickListener);
         
     	locationClient = new LocationClient(this, this, this);
+//    	Location loc = locationClient.getLastLocation();
+//    	LatLng centre = new LatLng(loc.getLatitude(), loc.getLongitude());
+//    	map.moveCamera(CameraUpdateFactory.newLatLngZoom(centre, 10));
     }
 
     @Override
@@ -194,6 +212,102 @@ public class GoToThereActivity extends Activity implements
 
     }
 
+    /**
+	 * Start a thread to retrieve the directions from the user's current location
+	 * to their selected point. The thread will update the navigationOverlay
+	 * once it has directions.
+	 */
+	private void getDirections(LatLng start, LatLng end) {
+		if (directionsTask == null || directionsTask.getStatus().equals(AsyncTask.Status.FINISHED)) {
+			directionsTask = new DirectionsTask(this, start, end); 
+			directionsTask.execute();
+		}		
+	}
+
+    /**
+     * Process DirectionsTask results by generating route display - 
+     * a polyline of the route, plus a start marker on the map. 
+     */
+	public void showDirections(DirectionsResult directions) {
+		Log.d(TAG, "Got results from DirectionsTask");
+		
+		DirectionsLeg firstLeg = directions.routes.get(0).legs.get(0);
+		
+		// Add extra detail to the destination marker
+		destinationMarker.setTitle(firstLeg.endAddress);
+		destinationMarker.setSnippet(firstLeg.distance.text);
+		
+		// Create the origin marker
+//		MarkerOptions opts = new MarkerOptions().
+//				position(new LatLng(directions.)).
+//				title("Navigate to this point").
+//				snippet("1.2km from current location").
+//				icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN));
+//		originMarker = map.addMarker(opts);
+		
+		// Loop through results and display polyline
+		PolylineOptions polyOpts = new PolylineOptions().
+				width(10).
+				color(Color.CYAN);
+		for (DirectionsLeg leg : directions.routes.get(0).legs) {
+			for (DirectionsStep step : leg.steps) {
+				List<LatLng> points = decodePolyline(step.polyline.points);
+				for (LatLng l : points) {
+					polyOpts.add(l);
+				}
+				
+			}
+		}
+		if (polyline != null) {
+			polyline.remove();
+		}
+		polyline = map.addPolyline(polyOpts);
+	}
+	
+	/**
+	 * The Directions API returns a start & end point for the leg, but
+	 * this would just yield a straight line on the map, which only approximately
+	 * follows roads, so we use the polyline associated with each step instead. 
+	 * This is encoded as per Google's Polyline encoding algorithm. The decoder 
+	 * below is taken (with much relief) from:
+	 * 
+	 * http://jeffreysambells.com/posts/2010/05/27/decoding-polylines-from-google-maps-direction-api-with-java/
+	 * 
+	 * @return points a List of LatLngs for the polyline of this step
+	 */
+	public List<LatLng> decodePolyline(String polyline) {
+
+	    List<LatLng> points = new ArrayList<LatLng>();
+	    int index = 0, len = polyline.length();
+	    int lat = 0, lng = 0;
+
+	    while (index < len) {
+	        int b, shift = 0, result = 0;
+	        do {
+	            b = polyline.charAt(index++) - 63;
+	            result |= (b & 0x1f) << shift;
+	            shift += 5;
+	        } while (b >= 0x20);
+	        int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+	        lat += dlat;
+
+	        shift = 0;
+	        result = 0;
+	        do {
+	            b = polyline.charAt(index++) - 63;
+	            result |= (b & 0x1f) << shift;
+	            shift += 5;
+	        } while (b >= 0x20);
+	        int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+	        lng += dlng;
+
+	        LatLng latLng = new LatLng(lat / 1E5, lng / 1E5);
+	        points.add(latLng);
+	    }
+
+	    return points;
+	}
+	
 	/*
 	 * Error Dialog for Play Services issues.
 	 */
