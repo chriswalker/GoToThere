@@ -66,7 +66,8 @@ public class DirectionsTask extends AsyncTask<Void, Integer, DirectionsResult> {
 
 	@Override
 	protected void onPostExecute(DirectionsResult route) {
-		Log.d("DirectionsTask", "some msg to breakpoint on");
+		// TODO: Will be changing to avoid references to non-existant actvities
+		// when activity killed due to screen rotation
 		activity.showDirections(route);
 	}
 
@@ -83,7 +84,7 @@ public class DirectionsTask extends AsyncTask<Void, Integer, DirectionsResult> {
 
 		public static DirectionsUrl getDirectionsByLatLng(LatLng origin,
 				LatLng destination) {
-			// Better way of doing this...
+			// TODO: Temporary; better way of doing this...
 			String params = "sensor=true&mode=walking";
 			params += "&origin=" + origin.latitude + "," + origin.longitude;
 			params += "&destination=" + destination.latitude + ","
