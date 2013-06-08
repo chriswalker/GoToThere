@@ -14,13 +14,13 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
-import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesClient.ConnectionCallbacks;
 import com.google.android.gms.common.GooglePlayServicesClient.OnConnectionFailedListener;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.location.LocationClient;
+import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.GoogleMap.OnMapClickListener;
 import com.google.android.gms.maps.MapFragment;
@@ -95,9 +95,6 @@ public class GoToThereActivity extends Activity implements
         map.setOnMapClickListener(mapClickListener);
         
     	locationClient = new LocationClient(this, this, this);
-//    	Location loc = locationClient.getLastLocation();
-//    	LatLng centre = new LatLng(loc.getLatitude(), loc.getLongitude());
-//    	map.moveCamera(CameraUpdateFactory.newLatLngZoom(centre, 10));
     }
 
     @Override
@@ -158,19 +155,19 @@ public class GoToThereActivity extends Activity implements
         }
     }
 
-
+	/**
+	 * Once connected to the location service, get last known location
+	 * and pan the map camera to it.
+	 */
 	@Override
-	public void onConnected(Bundle bundle) {
-		// TODO - use R.string
-		Toast.makeText(this, "Connected", Toast.LENGTH_SHORT).show();
+	public void onConnected(Bundle bundle) { 
+    	Location loc = locationClient.getLastLocation();
+    	LatLng centre = new LatLng(loc.getLatitude(), loc.getLongitude());
+    	map.moveCamera(CameraUpdateFactory.newLatLngZoom(centre, 16));
 	}
 
-
 	@Override
-	public void onDisconnected() {
-		// TODO - use R.string
-        Toast.makeText(this, "Disconnected. Please re-connect.", Toast.LENGTH_SHORT).show();		
-	}
+	public void onDisconnected() { }
     
     
 // Private methods
@@ -214,8 +211,7 @@ public class GoToThereActivity extends Activity implements
 
     /**
 	 * Start a thread to retrieve the directions from the user's current location
-	 * to their selected point. The thread will update the navigationOverlay
-	 * once it has directions.
+	 * to their selected point.
 	 */
 	private void getDirections(LatLng start, LatLng end) {
 		if (directionsTask == null || directionsTask.getStatus().equals(AsyncTask.Status.FINISHED)) {
@@ -228,9 +224,7 @@ public class GoToThereActivity extends Activity implements
      * Process DirectionsTask results by generating route display - 
      * a polyline of the route, plus a start marker on the map. 
      */
-	public void showDirections(DirectionsResult directions) {
-		Log.d(TAG, "Got results from DirectionsTask");
-		
+	public void showDirections(DirectionsResult directions) {		
 		DirectionsLeg firstLeg = directions.routes.get(0).legs.get(0);
 		
 		// Add extra detail to the destination marker
@@ -258,9 +252,7 @@ public class GoToThereActivity extends Activity implements
 				
 			}
 		}
-		if (polyline != null) {
-			polyline.remove();
-		}
+		if (polyline != null) polyline.remove();
 		polyline = map.addPolyline(polyOpts);
 	}
 	
