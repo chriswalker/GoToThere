@@ -58,7 +58,18 @@ public class GoToThereActivity extends Activity implements
 	
 	/** AsyncTask to retrieve directions. */
 	private DirectionsTask directionsTask;
+
+	// Instance state keys
 	
+	/** Key for origin latitude. */
+	private static final String ORIGIN_LAT = "origin_lat";
+	/** Key for origin longitude. */
+	private static final String ORIGIN_LNG = "origin_lng";
+	/** Key for destination latitude. */
+	private static final String DEST_LAT = "dest_lat";
+	/** Key for destination latitude. */
+	private static final String DEST_LNG = "dest_lng";
+
 	/** Click listener for the map. */
 	private OnMapClickListener mapClickListener = new OnMapClickListener() {
 
@@ -124,10 +135,10 @@ public class GoToThereActivity extends Activity implements
     protected void onActivityResult(
             int requestCode, int resultCode, Intent data) {
         switch (requestCode) {
-            case CONNECTION_FAILURE_RESOLUTION_REQUEST :
+            case CONNECTION_FAILURE_RESOLUTION_REQUEST:
             	// TODO
                 switch (resultCode) {
-                    case Activity.RESULT_OK :
+                    case Activity.RESULT_OK:
                     /*
                      * Try the request again
                      */
@@ -136,10 +147,58 @@ public class GoToThereActivity extends Activity implements
         }
      }
     
+	/* (non-Javadoc)
+	 * @see android.app.Activity#onRestoreInstanceState(android.os.Bundle)
+	 */
+	@Override
+	protected void onRestoreInstanceState(Bundle savedInstanceState) {
+		super.onRestoreInstanceState(savedInstanceState);
+		
+		// By definition, if we have an origin, we will also have a
+		// destination
+		if (savedInstanceState.containsKey(ORIGIN_LAT)) {
+			double lat = savedInstanceState.getDouble(ORIGIN_LAT);
+			double lng = savedInstanceState.getDouble(ORIGIN_LNG);
+			
+			MarkerOptions opts = new MarkerOptions().
+					position(new LatLng(lat, lng)).
+					icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN));
+			originMarker = map.addMarker(opts);
+			
+			lat = savedInstanceState.getDouble(DEST_LAT);
+			lng = savedInstanceState.getDouble(DEST_LNG);
+			
+			opts = new MarkerOptions().
+					position(new LatLng(lat, lng)).
+					icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED));
+			destinationMarker = map.addMarker(opts);
+			
+			getDirections(originMarker.getPosition(), destinationMarker.getPosition());
+		}
+	}
+
+	/* (non-Javadoc)
+	 * @see android.app.Activity#onSaveInstanceState(android.os.Bundle)
+	 */
+	@Override
+	protected void onSaveInstanceState(Bundle outState) {
+		// Any other marker data (titles, snippets) will be recreated
+		// on restore via the getDirections call; we just need lats/lngs
+		if (originMarker != null) {
+			outState.putDouble(ORIGIN_LAT, originMarker.getPosition().latitude);
+			outState.putDouble(ORIGIN_LNG, originMarker.getPosition().longitude);
+		}
+		if (destinationMarker != null) {
+			outState.putDouble(DEST_LAT, destinationMarker.getPosition().latitude);
+			outState.putDouble(DEST_LNG, destinationMarker.getPosition().longitude);			
+		}
+		super.onSaveInstanceState(outState);
+	}
+    
     /*
      * Google Play Services implementations
      */
-    
+
 	@Override
 	public void onConnectionFailed(ConnectionResult connectionResult) {
         if (connectionResult.hasResolution()) {
@@ -222,7 +281,9 @@ public class GoToThereActivity extends Activity implements
 
     /**
      * Process DirectionsTask results by generating route display - 
-     * a polyline of the route, plus a start marker on the map. 
+     * a polyline of the route, plus a start marker on the map. Destination
+     * marker has already been placed by the user, so we just add some
+     * details to it.
      */
 	public void showDirections(DirectionsResult directions) {		
 		DirectionsLeg firstLeg = directions.routes.get(0).legs.get(0);
@@ -230,19 +291,22 @@ public class GoToThereActivity extends Activity implements
 		// Add extra detail to the destination marker
 		destinationMarker.setTitle(firstLeg.endAddress);
 		destinationMarker.setSnippet(firstLeg.distance.text);
+		// Snap user-placed marker to end location defined in direction
+		// results - may remove.
+		destinationMarker.setPosition(firstLeg.endLocation.toLatLng());
 		
 		// Create the origin marker
-//		MarkerOptions opts = new MarkerOptions().
-//				position(new LatLng(directions.)).
-//				title("Navigate to this point").
-//				snippet("1.2km from current location").
-//				icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN));
-//		originMarker = map.addMarker(opts);
-		
+		MarkerOptions opts = new MarkerOptions().
+				position(firstLeg.startLocation.toLatLng()).
+				title(firstLeg.startAddress).
+				icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN));
+		if (originMarker != null) originMarker.remove();
+		originMarker = map.addMarker(opts);
+			
 		// Loop through results and display polyline
 		PolylineOptions polyOpts = new PolylineOptions().
 				width(10).
-				color(Color.CYAN);
+				color(Color.GREEN);
 		for (DirectionsLeg leg : directions.routes.get(0).legs) {
 			for (DirectionsStep step : leg.steps) {
 				List<LatLng> points = decodePolyline(step.polyline.points);
