@@ -2,9 +2,7 @@ package com.taw.gotothere;
 
 import java.io.IOException;
 
-import android.app.Activity;
 import android.os.AsyncTask;
-import android.util.Log;
 
 import com.google.android.gms.maps.model.LatLng;
 import com.google.api.client.http.GenericUrl;
@@ -80,16 +78,17 @@ public class DirectionsTask extends AsyncTask<Void, Integer, DirectionsResult> {
 
 		public DirectionsUrl(String encodedUrl) {
 			super(encodedUrl);
+			put("sensor", "true");
+			put("mode", "walking");
 		}
 
 		public static DirectionsUrl getDirectionsByLatLng(LatLng origin,
 				LatLng destination) {
-			// TODO: Temporary; better way of doing this...
-			String params = "sensor=true&mode=walking";
-			params += "&origin=" + origin.latitude + "," + origin.longitude;
-			params += "&destination=" + destination.latitude + ","
-					+ destination.longitude;
-			return new DirectionsUrl(URL + "?" + params);
+			DirectionsUrl url = new DirectionsUrl(URL);
+			url.put("origin", origin.latitude + "," + origin.longitude);
+			url.put("destination", destination.latitude + "," + destination.longitude);
+			
+			return url;
 		}
 	}
 }
