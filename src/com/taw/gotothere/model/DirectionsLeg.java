@@ -2,7 +2,6 @@ package com.taw.gotothere.model;
 
 import java.util.List;
 
-import com.google.android.gms.maps.model.LatLng;
 import com.google.api.client.util.Key;
 
 public class DirectionsLeg {
@@ -19,10 +18,10 @@ public class DirectionsLeg {
  	public String endAddress;
  	
  	@Key("start_location")
- 	public Location startLocation;
+ 	public DirectionsLatLng startLocation;
  	
  	@Key("end_location")
- 	public Location endLocation;
+ 	public DirectionsLatLng endLocation;
  	
  	public static class Distance {
  		@Key
@@ -31,17 +30,5 @@ public class DirectionsLeg {
  		@Key
  		public int value;
  	}
- 	
- 	public static class Location {
- 		@Key
- 		public float lat;
- 		
- 		@Key
- 		public float lng;
- 		
- 		public LatLng toLatLng() {
- 			return new LatLng(lat, lng);
- 		}
- 	}
- 	
+ 	 	
 }
