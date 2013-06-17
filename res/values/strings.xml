@@ -2,7 +2,19 @@
 <resources>
 
     <string name="app_name">Go To There</string>
+    
+    <!-- ActionBar strings -->
+    
     <string name="action_settings">Settings</string>
-    <string name="menu_search">Enter address</string>
+    <string name="address_hint">Enter address</string>
 
+    <!-- General error strings -->
+    
+    <string name="error_general_text">Could not obtain directions from the server - please try again shortly.</string>
+    <string name="error_not_found_text">Could not find destination address.</string>
+
+    <!--  Progress Dialogs -->
+    
+    <string name="progress_directions">Getting walking directions...</string>
+    
 </resources>
