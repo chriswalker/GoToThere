@@ -10,4 +10,15 @@ public class DirectionsRoute {
  	
 // 	@Key
 // 	public String copyright;
+ 	
+ 	@Key
+ 	public RouteBounds bounds;
+ 	
+ 	public static class RouteBounds {
+ 		@Key("northeast")
+ 		public DirectionsLatLng ne;
+ 		
+ 		@Key("southwest")
+ 		public DirectionsLatLng sw;
+ 	}
 }
