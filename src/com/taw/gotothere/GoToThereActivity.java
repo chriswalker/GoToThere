@@ -1,19 +1,29 @@
 package com.taw.gotothere;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import android.app.Activity;
 import android.app.Dialog;
 import android.app.DialogFragment;
+import android.app.ProgressDialog;
+import android.app.SearchManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.graphics.Color;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.Location;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.provider.SearchRecentSuggestions;
 import android.util.Log;
 import android.view.Menu;
+import android.widget.SearchView;
+import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesClient.ConnectionCallbacks;
@@ -26,13 +36,16 @@ import com.google.android.gms.maps.GoogleMap.OnMapClickListener;
 import com.google.android.gms.maps.MapFragment;
 import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.Polyline;
 import com.google.android.gms.maps.model.PolylineOptions;
 import com.taw.gotothere.model.DirectionsLeg;
 import com.taw.gotothere.model.DirectionsResult;
+import com.taw.gotothere.model.DirectionsRoute.RouteBounds;
 import com.taw.gotothere.model.DirectionsStep;
+import com.taw.gotothere.provider.GoToThereSuggestionProvider;
 
 public class GoToThereActivity extends Activity implements
 	ConnectionCallbacks,
@@ -40,6 +53,8 @@ public class GoToThereActivity extends Activity implements
 
 	/** Logging. */
 	private static final String TAG = "GoToThereActivity";
+	
+	// Maps objects
 	
 	/** Google Map object. */
 	private GoogleMap map;
@@ -50,15 +65,6 @@ public class GoToThereActivity extends Activity implements
 	/** Current directions polyline. */
 	private Polyline polyline;
 	
-	/** Request code for return by Services. */
-	private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
-	
-	/** Location client, obtained from Play Services. */
-	private LocationClient locationClient;
-	
-	/** AsyncTask to retrieve directions. */
-	private DirectionsTask directionsTask;
-
 	// Instance state keys
 	
 	/** Key for origin latitude. */
@@ -70,6 +76,20 @@ public class GoToThereActivity extends Activity implements
 	/** Key for destination latitude. */
 	private static final String DEST_LNG = "dest_lng";
 
+	// Misc
+	
+	/** Request code for return by Services. */
+	private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
+	
+	/** Location client, obtained from Play Services. */
+	private LocationClient locationClient;
+	
+	/** AsyncTask to retrieve directions. */
+	private DirectionsTask directionsTask;
+	
+	/** Progress dialog for getting directions. */
+	private ProgressDialog progress;
+	
 	/** Click listener for the map. */
 	private OnMapClickListener mapClickListener = new OnMapClickListener() {
 
@@ -79,14 +99,10 @@ public class GoToThereActivity extends Activity implements
 		@Override
 		public void onMapClick(LatLng latLng) {
 			if (destinationMarker != null) destinationMarker.remove();
-			MarkerOptions opts = new MarkerOptions().
-					position(latLng).
-					icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED));
-			destinationMarker = map.addMarker(opts);
+			destinationMarker = placeMarker(latLng, null, null, BitmapDescriptorFactory.HUE_RED);
 			
 			if (servicesConnected()) {
-				Location loc = locationClient.getLastLocation();
-				getDirections(new LatLng(loc.getLatitude(), loc.getLongitude()), latLng);
+				getDirections(latLng);
 			}
 		}
 	};
@@ -99,19 +115,23 @@ public class GoToThereActivity extends Activity implements
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
-        
+
         map = ((MapFragment) getFragmentManager().findFragmentById(R.id.map)).getMap();
         map.setMyLocationEnabled(true);
         
         map.setOnMapClickListener(mapClickListener);
         
     	locationClient = new LocationClient(this, this, this);
+    	
+    	// Only intent we're interested in is ACTION_SEARCH, but we defer
+    	// handling it until we're connected to the location client -
+    	// see onConnected()
     }
 
     @Override
 	protected void onStart() {
 		super.onStart();
-		locationClient.connect();
+		locationClient.connect();	
 	}
 
 	@Override
@@ -123,6 +143,12 @@ public class GoToThereActivity extends Activity implements
 	@Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.go_to_there, menu);
+        
+    	// Set up search widget
+        SearchManager searchManager = (SearchManager) getSystemService(Context.SEARCH_SERVICE);
+        SearchView searchView = (SearchView) menu.findItem(R.id.menu_search).getActionView();
+        searchView.setSearchableInfo(searchManager.getSearchableInfo(getComponentName()));
+        
         return true;
     }
 
@@ -158,20 +184,12 @@ public class GoToThereActivity extends Activity implements
 		// destination
 		if (savedInstanceState.containsKey(ORIGIN_LAT)) {
 			double lat = savedInstanceState.getDouble(ORIGIN_LAT);
-			double lng = savedInstanceState.getDouble(ORIGIN_LNG);
-			
-			MarkerOptions opts = new MarkerOptions().
-					position(new LatLng(lat, lng)).
-					icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN));
-			originMarker = map.addMarker(opts);
+			double lng = savedInstanceState.getDouble(ORIGIN_LNG);			
+			originMarker = placeMarker(new LatLng(lat, lng), null, null, BitmapDescriptorFactory.HUE_GREEN);
 			
 			lat = savedInstanceState.getDouble(DEST_LAT);
 			lng = savedInstanceState.getDouble(DEST_LNG);
-			
-			opts = new MarkerOptions().
-					position(new LatLng(lat, lng)).
-					icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED));
-			destinationMarker = map.addMarker(opts);
+			destinationMarker = placeMarker(new LatLng(lat, lng), null, null, BitmapDescriptorFactory.HUE_RED);
 			
 			getDirections(originMarker.getPosition(), destinationMarker.getPosition());
 		}
@@ -223,12 +241,25 @@ public class GoToThereActivity extends Activity implements
     	Location loc = locationClient.getLastLocation();
     	LatLng centre = new LatLng(loc.getLatitude(), loc.getLongitude());
     	map.moveCamera(CameraUpdateFactory.newLatLngZoom(centre, 16));
-	}
+    	
+    	// If the activity was started via a search, update suggestions
+    	// And reverse-geocode the address
+    	Intent intent = getIntent();
+        if (intent.getAction().equals(Intent.ACTION_SEARCH)) {
+        	String query = intent.getStringExtra(SearchManager.QUERY);
+
+    		SearchRecentSuggestions suggestions = 
+    			new SearchRecentSuggestions(this, 
+    					GoToThereSuggestionProvider.AUTHORITY, GoToThereSuggestionProvider.MODE);
+            suggestions.saveRecentQuery(query, null);
+            
+            reverseGeocodeQuery(query);	            
+        }
+    }
 
 	@Override
 	public void onDisconnected() { }
-    
-    
+        
 // Private methods
    
 	/**
@@ -265,27 +296,46 @@ public class GoToThereActivity extends Activity implements
             errorFragment.setDialog(errorDialog);
             errorFragment.show(getFragmentManager(), "Location Updates");
         }
-
     }
 
     /**
 	 * Start a thread to retrieve the directions from the user's current location
-	 * to their selected point.
+	 * to their selected point. 
+     * @param end End point the user has selected
+     */
+	private void getDirections(LatLng end) {
+		Location loc = locationClient.getLastLocation();
+		getDirections(new LatLng(loc.getLatitude(), loc.getLongitude()), end);
+	}
+
+	/**
+	 * Start a thread to retrieve directions from the supplied start point to the
+	 * selected end point.
+	 * @param start LatLng representing the start point
+	 * @param end LatLng representing the end point
 	 */
 	private void getDirections(LatLng start, LatLng end) {
 		if (directionsTask == null || directionsTask.getStatus().equals(AsyncTask.Status.FINISHED)) {
 			directionsTask = new DirectionsTask(this, start, end); 
 			directionsTask.execute();
-		}		
+			
+			// Show progress dialog box
+			progress = new ProgressDialog(this);
+			progress.setMessage(getResources().getString(R.string.progress_directions));
+			progress.show();
+		}				
 	}
-
+	
     /**
      * Process DirectionsTask results by generating route display - 
      * a polyline of the route, plus a start marker on the map. Destination
      * marker has already been placed by the user, so we just add some
      * details to it.
      */
-	public void showDirections(DirectionsResult directions) {		
+	// Will be private once using broadcast to return AsyncTask results
+	public void showDirections(DirectionsResult directions) {
+		progress.cancel();
+		
 		DirectionsLeg firstLeg = directions.routes.get(0).legs.get(0);
 		
 		// Add extra detail to the destination marker
@@ -296,12 +346,8 @@ public class GoToThereActivity extends Activity implements
 		destinationMarker.setPosition(firstLeg.endLocation.toLatLng());
 		
 		// Create the origin marker
-		MarkerOptions opts = new MarkerOptions().
-				position(firstLeg.startLocation.toLatLng()).
-				title(firstLeg.startAddress).
-				icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN));
 		if (originMarker != null) originMarker.remove();
-		originMarker = map.addMarker(opts);
+		originMarker = placeMarker(firstLeg.startLocation.toLatLng(), firstLeg.startAddress, null, BitmapDescriptorFactory.HUE_GREEN);
 			
 		// Loop through results and display polyline
 		PolylineOptions polyOpts = new PolylineOptions().
@@ -318,6 +364,29 @@ public class GoToThereActivity extends Activity implements
 		}
 		if (polyline != null) polyline.remove();
 		polyline = map.addPolyline(polyOpts);
+
+		// Finally, pan the map to encompass the route lat/lng bounds
+		RouteBounds routeBounds = directions.routes.get(0).bounds;
+		LatLngBounds bounds = new LatLngBounds(routeBounds.sw.toLatLng(), routeBounds.ne.toLatLng());
+    	map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100));
+	}
+	
+	/**
+	 * Add a marker to the map at the supplied position.
+	 * 
+	 * @param position
+	 * @param title
+	 * @param snippet
+	 * @return Marker instance generated by the map
+	 */
+	private Marker placeMarker(LatLng position, String title, String snippet, float colour) {
+		MarkerOptions opts = new MarkerOptions().
+				position(position).
+				title(title).
+				snippet(snippet).
+				icon(BitmapDescriptorFactory.defaultMarker(colour));
+		
+		return map.addMarker(opts);
 	}
 	
 	/**
@@ -331,7 +400,7 @@ public class GoToThereActivity extends Activity implements
 	 * 
 	 * @return points a List of LatLngs for the polyline of this step
 	 */
-	public List<LatLng> decodePolyline(String polyline) {
+	private List<LatLng> decodePolyline(String polyline) {
 
 	    List<LatLng> points = new ArrayList<LatLng>();
 	    int index = 0, len = polyline.length();
@@ -362,6 +431,30 @@ public class GoToThereActivity extends Activity implements
 	    }
 
 	    return points;
+	}
+
+	/**
+	 * Reverse-geocode the location the user typed into the search box, and centre the map
+	 * on it.
+	 */
+	private void reverseGeocodeQuery(String address) {
+		Geocoder geo = new Geocoder(this, Locale.getDefault());
+		try {
+			List<Address> addresses = geo.getFromLocationName(address, 10);			// Hmmmm, 1?
+			if (addresses.size() > 0) {
+				LatLng position = new LatLng(addresses.get(0).getLatitude(),
+						addresses.get(0).getLongitude());
+				destinationMarker = placeMarker(position, null, null, BitmapDescriptorFactory.HUE_RED);
+				if (servicesConnected()) {
+					getDirections(position);
+				}
+			} else {
+				Toast.makeText(this, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();
+			}
+		} catch (IOException ioe) {
+			Log.e(TAG, "Could not geocode '" + address + "'", ioe);
+			Toast.makeText(this, R.string.error_general_text, Toast.LENGTH_SHORT).show();
+		}
 	}
 	
 	/*
