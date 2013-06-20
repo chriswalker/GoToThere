@@ -7,7 +7,6 @@ import java.util.Locale;
 
 import android.app.Activity;
 import android.app.Dialog;
-import android.app.DialogFragment;
 import android.app.ProgressDialog;
 import android.app.SearchManager;
 import android.content.Context;
@@ -17,6 +16,8 @@ import android.graphics.Color;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.provider.SearchRecentSuggestions;
@@ -41,6 +42,7 @@ import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.Polyline;
 import com.google.android.gms.maps.model.PolylineOptions;
+import com.taw.gotothere.fragment.GoToThereDialogFragment;
 import com.taw.gotothere.model.DirectionsLeg;
 import com.taw.gotothere.model.DirectionsResult;
 import com.taw.gotothere.model.DirectionsRoute.RouteBounds;
@@ -116,27 +118,35 @@ public class GoToThereActivity extends Activity implements
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
-        map = ((MapFragment) getFragmentManager().findFragmentById(R.id.map)).getMap();
-        map.setMyLocationEnabled(true);
-        
-        map.setOnMapClickListener(mapClickListener);
-        
-    	locationClient = new LocationClient(this, this, this);
-    	
-    	// Only intent we're interested in is ACTION_SEARCH, but we defer
-    	// handling it until we're connected to the location client -
-    	// see onConnected()
+        if (networkConnected()) {        
+	        map = ((MapFragment) getFragmentManager().findFragmentById(R.id.map)).getMap();
+	        map.setMyLocationEnabled(true);
+	        
+	        map.setOnMapClickListener(mapClickListener);
+	        
+	    	locationClient = new LocationClient(this, this, this);
+	    	
+	    	// Only intent we're interested in is ACTION_SEARCH, but we defer
+	    	// handling it until we're connected to the location client -
+	    	// see onConnected()
+        } else {
+        	showNoNetworkDialog();
+        }
     }
 
     @Override
 	protected void onStart() {
 		super.onStart();
-		locationClient.connect();	
+		if (networkConnected()) {
+			locationClient.connect();
+		}
 	}
 
 	@Override
 	protected void onStop() {
-		locationClient.disconnect();
+		if (networkConnected()) {
+			locationClient.disconnect();
+		}
 		super.onStop();
 	}
 
@@ -281,24 +291,6 @@ public class GoToThereActivity extends Activity implements
     }
     
     /**
-     * Construct and display the Play Services error dialog, to give the
-     * user a chance to rectify the problem.
-     * @param errorCode The error code reported back from GooglePlayServicesUil
-     */
-    private void showErrorDialog(int errorCode) {
-        Dialog errorDialog = GooglePlayServicesUtil.getErrorDialog(
-                errorCode,
-                this,
-                CONNECTION_FAILURE_RESOLUTION_REQUEST);
-
-        if (errorDialog != null) {
-            ErrorDialogFragment errorFragment = new ErrorDialogFragment();
-            errorFragment.setDialog(errorDialog);
-            errorFragment.show(getFragmentManager(), "Location Updates");
-        }
-    }
-
-    /**
 	 * Start a thread to retrieve the directions from the user's current location
 	 * to their selected point. 
      * @param end End point the user has selected
@@ -364,12 +356,27 @@ public class GoToThereActivity extends Activity implements
 		}
 		if (polyline != null) polyline.remove();
 		polyline = map.addPolyline(polyOpts);
-
+		
 		// Finally, pan the map to encompass the route lat/lng bounds
 		RouteBounds routeBounds = directions.routes.get(0).bounds;
 		LatLngBounds bounds = new LatLngBounds(routeBounds.sw.toLatLng(), routeBounds.ne.toLatLng());
     	map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100));
 	}
+	
+	/**
+	 * Cancel the navigation display - remove markers and polyline
+	 * form the map, and remove any instance state pertaining to
+	 * this route.
+	 */
+//	private void cancelNavigation() {
+//		// Remove markers
+//		
+//		// Remove polyline
+//		
+//		// Remove instance state?
+//		
+//		actionMode.finish();
+//	}
 	
 	/**
 	 * Add a marker to the map at the supplied position.
@@ -457,27 +464,48 @@ public class GoToThereActivity extends Activity implements
 		}
 	}
 	
-	/*
-	 * Error Dialog for Play Services issues.
+	/**
+	 * Determines whether the device has internet connectivity; if not
+	 * we won't be able to get map data or directions.
+	 * @return
 	 */
-    
-    public static class ErrorDialogFragment extends DialogFragment {
-        // Global field to contain the error dialog
-        private Dialog dialog;
-        // Default constructor. Sets the dialog field to null
-        public ErrorDialogFragment() {
-            super();
-            dialog = null;
+	private boolean networkConnected() {
+	    ConnectivityManager connMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo networkInfo = connMgr.getActiveNetworkInfo();
+        if (networkInfo == null || !networkInfo.isConnected()) {
+        	return false;
         }
-        // Set the dialog to display
-        public void setDialog(Dialog dialog) {
-            this.dialog = dialog;
-        }
-        // Return a Dialog to the DialogFragment.
-        @Override
-        public Dialog onCreateDialog(Bundle savedInstanceState) {
-            return dialog;
+        
+        return true;
+	}
+	
+	/**
+	 * Display the No Network Access alert dialog.
+	 */
+	private void showNoNetworkDialog() {
+	    Dialog dialog = GoToThereUtil.getNoNetworkDialog(this);
+	    if (dialog != null) {
+            GoToThereDialogFragment dialogFragment = new GoToThereDialogFragment();
+            dialogFragment.setDialog(dialog);
+            dialogFragment.show(getFragmentManager(), "No Network");	    	
+	    }
+	}
+	
+    /**
+     * Construct and display the Play Services error dialog, to give the
+     * user a chance to rectify the problem.
+     * @param errorCode The error code reported back from GooglePlayServicesUil
+     */
+    private void showErrorDialog(int errorCode) {
+        Dialog errorDialog = GooglePlayServicesUtil.getErrorDialog(
+                errorCode,
+                this,
+                CONNECTION_FAILURE_RESOLUTION_REQUEST);
+
+        if (errorDialog != null) {
+            GoToThereDialogFragment dialogFragment = new GoToThereDialogFragment();
+            dialogFragment.setDialog(errorDialog);
+            dialogFragment.show(getFragmentManager(), "Location Updates");
         }
     }
-
 }
