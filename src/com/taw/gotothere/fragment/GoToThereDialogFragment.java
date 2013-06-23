@@ -12,7 +12,8 @@ import android.os.Bundle;
  * @author chris
  */
 public class GoToThereDialogFragment extends DialogFragment {
-    /** Global field to contain the dialog. */
+
+	/** Global field to contain the dialog. */
     private Dialog dialog;
     
     /**
@@ -22,8 +23,9 @@ public class GoToThereDialogFragment extends DialogFragment {
         super();
         dialog = null;
     }
+    
     /**
-     *  Set the dialog to display
+     * Set the dialog to display
      * @param dialog
      */
     public void setDialog(Dialog dialog) {
