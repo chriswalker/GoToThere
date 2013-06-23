@@ -27,4 +27,10 @@
     <string name="ok_button_text">OK</string>
     <string name="settings_button_text">Settings</string>    
     
+    <!-- First run Dialog -->
+    <string name="first_run_dialog_title">Go To There</string>
+    <string name="first_run_text">Go To There uses directions provided by Google\'s Directions service.\n\nWalking directions provided by this service are in beta - note that routes described may be missing sidewalks/pavements or other pedestrian paths.\n\nPlease use your judgement when following directions provided by this application!\n</string>
+    <string name="accept_button_label">Accept</string>
+    <string name="dont_accept_button_label">Don\'t Accept</string>
+    
 </resources>
