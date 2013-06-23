@@ -71,6 +71,9 @@ public class GoToThereActivity extends Activity implements
 	
 	/** Progress dialog for getting directions. */
 	private ProgressDialog progress;
+
+	/** Shared preference, indicating whether user has accepted the 'terms'. */
+	private static final String ACCEPTED_TOC = "ACCEPTED_TOC";
 	
 	/** Click listener for the map. */
 	private OnMapClickListener mapClickListener = new OnMapClickListener() {
@@ -97,6 +100,10 @@ public class GoToThereActivity extends Activity implements
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
+		if (!getPreferences(MODE_PRIVATE).getBoolean(ACCEPTED_TOC, false)) {
+			showFirstRunDialog();
+		}
+        
         if (networkConnected()) {
         	mapsHelper = new MapsHelper(this);
 	        mapsHelper.getMap().setOnMapClickListener(mapClickListener);
@@ -372,6 +379,18 @@ public class GoToThereActivity extends Activity implements
             GoToThereDialogFragment dialogFragment = new GoToThereDialogFragment();
             dialogFragment.setDialog(dialog);
             dialogFragment.show(getFragmentManager(), "No Network");	    	
+	    }
+	}
+
+	/**
+	 * Display the Terms and Conditions alert dialog.
+	 */
+	private void showFirstRunDialog() {
+	    Dialog dialog = GoToThereUtil.getFirstRunDialog(this);
+	    if (dialog != null) {
+            GoToThereDialogFragment dialogFragment = new GoToThereDialogFragment();
+            dialogFragment.setDialog(dialog);
+            dialogFragment.show(getFragmentManager(), "First Run");	    	
 	    }
 	}
 	
