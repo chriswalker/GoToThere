@@ -82,8 +82,7 @@ public class DirectionsTask extends AsyncTask<Void, Integer, DirectionsResult> {
 			put("mode", "walking");
 		}
 
-		public static DirectionsUrl getDirectionsByLatLng(LatLng origin,
-				LatLng destination) {
+		public static DirectionsUrl getDirectionsByLatLng(LatLng origin, LatLng destination) {
 			DirectionsUrl url = new DirectionsUrl(URL);
 			url.put("origin", origin.latitude + "," + origin.longitude);
 			url.put("destination", destination.latitude + "," + destination.longitude);
