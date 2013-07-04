@@ -22,6 +22,7 @@ public class GoToThereDialogFragment extends DialogFragment {
     public GoToThereDialogFragment() {
         super();
         dialog = null;
+        setRetainInstance(true);
     }
     
     /**
