@@ -56,7 +56,7 @@ public class GoToThereUtil {
 		
 		return new AlertDialog.Builder(activity)
 			.setTitle(activity.getResources().getString(R.string.first_run_dialog_title))
-			.setMessage(activity.getResources().getString(R.string.first_run_text))
+			.setMessage(activity.getResources().getString(R.string.first_run_dialog_text))
 			.setPositiveButton(activity.getResources().getString(R.string.accept_button_label), 
 				new DialogInterface.OnClickListener() {
 		           public void onClick(DialogInterface dialog, int id) {
