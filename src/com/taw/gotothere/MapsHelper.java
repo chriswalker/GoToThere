@@ -33,15 +33,22 @@ public class MapsHelper {
 	/** Google Map object. */
 	private GoogleMap map;
 	/** Placed marker for the destination. */
-	private Marker destinationMarker;
+	private Marker destinationMarker = null;
 	/** Marker for the start point of the route. */
-	private Marker originMarker;
+	private Marker originMarker = null;
 	/** Current directions polyline. */
 	private Polyline polyline;
 	
-	public MapsHelper(Activity activity) {
+	public MapsHelper(final Activity activity) {
         map = ((MapFragment) activity.getFragmentManager().findFragmentById(R.id.map)).getMap();
         map.setMyLocationEnabled(true);
+	}
+	
+	public void updateDestinationMarkerText(String title, String snippet) {
+		if (title != null) destinationMarker.setTitle(title);
+		if (snippet != null) destinationMarker.setSnippet(snippet);
+
+		destinationMarker.showInfoWindow();
 	}
 	
 	/**
@@ -57,18 +64,51 @@ public class MapsHelper {
 	}
 
 	/**
-	 * Places a destination marker on the map.
+	 * Places a destination marker on the map. We might want to display the InfoWindow
+	 * of the marker after placement.
 	 * 
 	 * @param latLng Location to place the marker
 	 * @param title String to use as the marker title, or null
 	 * @param snippet String to use as the marker snippet, or null
 	 */
-	public void placeDestinationMarker(LatLng latLng, String title, String snippet) {
+	public void placeDestinationMarker(LatLng latLng, String title, String snippet, boolean showInfoWindow) {
 		if (destinationMarker != null) destinationMarker.remove();
 		destinationMarker = placeMarker(latLng, title, snippet, BitmapDescriptorFactory.HUE_RED);
+		if (showInfoWindow) {
+			destinationMarker.showInfoWindow();
+		}
 		
+		map.moveCamera(CameraUpdateFactory.newLatLng(latLng));
 	}
 
+	/**
+	 * Remove markers and polyline from the map.
+	 */
+	public void clearAll() {
+		if (originMarker != null) { 
+			originMarker.remove();
+			originMarker = null;
+			polyline.remove();
+			polyline = null;
+		}
+		
+		if (destinationMarker != null) {
+			destinationMarker.remove();
+			destinationMarker = null;
+		}
+	}
+	
+	/**
+	 * Helper method to report if we are displaying a route.
+	 * 
+	 * @return true if we have a polyline, false otherwise
+	 */
+	public boolean displayingRoute() {
+		return polyline != null ? true : false;
+	}
+	
+// Private methods	
+	
 	/**
 	 * Add a marker to the map at the supplied position.
 	 * 
@@ -98,7 +138,7 @@ public class MapsHelper {
 		DirectionsLeg firstLeg = directions.routes.get(0).legs.get(0);
 		
 		// Add extra detail to the destination marker
-		destinationMarker.setTitle(firstLeg.endAddress);
+		//destinationMarker.setTitle(firstLeg.endAddress);
 		destinationMarker.setSnippet(firstLeg.distance.text);
 		// Snap user-placed marker to end location defined in direction results
 		destinationMarker.setPosition(firstLeg.endLocation.toLatLng());
