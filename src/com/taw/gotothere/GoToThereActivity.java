@@ -10,6 +10,7 @@ import android.app.ProgressDialog;
 import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.IntentSender;
 import android.location.Address;
 import android.location.Geocoder;
@@ -21,6 +22,7 @@ import android.os.Bundle;
 import android.provider.SearchRecentSuggestions;
 import android.util.Log;
 import android.view.Menu;
+import android.view.MenuItem;
 import android.widget.SearchView;
 import android.widget.Toast;
 
@@ -30,6 +32,7 @@ import com.google.android.gms.common.GooglePlayServicesClient.OnConnectionFailed
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.location.LocationClient;
 import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener;
 import com.google.android.gms.maps.GoogleMap.OnMapClickListener;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
@@ -45,7 +48,7 @@ public class GoToThereActivity extends Activity implements
 	private static final String TAG = "GoToThereActivity";
 	
 	/** Helper for maps interactions. */
-	private MapsHelper mapsHelper;
+	private MapsHelper mapsHelper = null;
 	
 	// Instance state keys
 	
@@ -53,10 +56,17 @@ public class GoToThereActivity extends Activity implements
 	private static final String ORIGIN_LAT = "origin_lat";
 	/** Key for origin longitude. */
 	private static final String ORIGIN_LNG = "origin_lng";
+	/** Key for origin address (text). */
+	private static final String ORIGIN_TITLE = "origin_text";
 	/** Key for destination latitude. */
 	private static final String DEST_LAT = "dest_lat";
 	/** Key for destination latitude. */
 	private static final String DEST_LNG = "dest_lng";
+	/** Key for destination address (text). */
+	private static final String DEST_TITLE = "dest_text";
+	/** Key for destination snippet. */
+	private static final String DEST_SNIPPET = "dest_snippet";
+	
 
 	// Misc
 	
@@ -75,22 +85,48 @@ public class GoToThereActivity extends Activity implements
 	/** Shared preference, indicating whether user has accepted the 'terms'. */
 	private static final String ACCEPTED_TOC = "ACCEPTED_TOC";
 	
+	/** Broadcast receiver for receiving network events. */
+	private NetworkReceiver receiver;
+	
 	/** Click listener for the map. */
 	private OnMapClickListener mapClickListener = new OnMapClickListener() {
 
 		/**
-		 * Initially just display a marker where the user taps.
+		 * Display a marker where the user taps, geocode the map position into
+		 * an address for the InfoWindow text, and show the InfoWindow.
 		 */
 		@Override
 		public void onMapClick(LatLng latLng) {
-			mapsHelper.placeDestinationMarker(latLng, null, null);
-			
-			if (servicesConnected()) {
-				getDirections(latLng);
+			if (!mapsHelper.displayingRoute()) {
+				mapsHelper.placeDestinationMarker(latLng, getResources().getString(R.string.getting_address_text), null, true);
+				String address = geocode(latLng);
+				if (address != null) {
+					mapsHelper.updateDestinationMarkerText(address, getResources().getString(R.string.tap_hint_snippet));
+				}
 			}
+			
+				//			} else {
+//				Toast.makeText(this, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();				
+//			}
 		}
 	};
-		
+	
+	/** Click listener for info window clicks. */
+	private OnInfoWindowClickListener infoWindowClickListener = new OnInfoWindowClickListener() {
+
+		/* (non-Javadoc)
+		 * @see com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener#onInfoWindowClick(com.google.android.gms.maps.model.Marker)
+		 */
+		@Override
+		public void onInfoWindowClick(Marker marker) {
+			if (servicesConnected()) {
+				// The destination marker was clicked
+				getDirections(marker.getPosition());
+				marker.hideInfoWindow();
+			}			
+		}
+	};
+	
 	/*
 	 * General activity overrides
 	 */
@@ -107,18 +143,40 @@ public class GoToThereActivity extends Activity implements
         if (networkConnected()) {
         	mapsHelper = new MapsHelper(this);
 	        mapsHelper.getMap().setOnMapClickListener(mapClickListener);
+	        mapsHelper.getMap().setOnInfoWindowClickListener(infoWindowClickListener);
 	        
 	    	locationClient = new LocationClient(this, this, this);
 	    	
 	    	// Only intent we're interested in is ACTION_SEARCH, but we defer
 	    	// handling it until we're connected to the location client -
 	    	// see onConnected()
+	    	
+	    	// Set up for receiving network events, so we can respond to loss of
+	    	// signal or wifi
+	    	IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
+	        receiver = new NetworkReceiver();
+	        registerReceiver(receiver, filter);
         } else {
+        	// If there is no network availability on startup, flash a dialog to
+        	// the user
         	showNoNetworkDialog();
         }
     }
 
-    @Override
+    /* (non-Javadoc)
+	 * @see android.app.Activity#onDestroy()
+	 */
+	@Override
+	protected void onDestroy() {
+		super.onDestroy();
+		if (receiver != null) {
+			unregisterReceiver(receiver);
+		}
+	}
+
+
+
+	@Override
 	protected void onStart() {
 		super.onStart();
 		if (networkConnected()) {
@@ -140,20 +198,33 @@ public class GoToThereActivity extends Activity implements
         
     	// Set up search widget
         SearchManager searchManager = (SearchManager) getSystemService(Context.SEARCH_SERVICE);
-        SearchView searchView = (SearchView) menu.findItem(R.id.menu_search).getActionView();
+        SearchView searchView = (SearchView) menu.findItem(R.id.action_search).getActionView();
         searchView.setSearchableInfo(searchManager.getSearchableInfo(getComponentName()));
         
         return true;
     }
 
-    /**
+
+	/* (non-Javadoc)
+	 * @see android.app.Activity#onOptionsItemSelected(android.view.MenuItem)
+	 */
+	@Override
+	public boolean onOptionsItemSelected(MenuItem item) {
+		switch (item.getItemId()) {
+		case R.id.action_clear:
+			cancelNavigation();
+		}
+		// Others to follow
+		return false;
+	}
+
+	/**
      * Handle results from other activities - currently just response
      * from Google Play Services, potentially called if the user has to
      * try and rectify a problem with the location services.
      */
     @Override
-    protected void onActivityResult(
-            int requestCode, int resultCode, Intent data) {
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         switch (requestCode) {
             case CONNECTION_FAILURE_RESOLUTION_REQUEST:
             	// TODO
@@ -174,20 +245,29 @@ public class GoToThereActivity extends Activity implements
 	protected void onRestoreInstanceState(Bundle savedInstanceState) {
 		super.onRestoreInstanceState(savedInstanceState);
 		
-		// By definition, if we have an origin, we will also have a
-		// destination
-		if (savedInstanceState.containsKey(ORIGIN_LAT)) {
-			double lat = savedInstanceState.getDouble(ORIGIN_LAT);
-			double lng = savedInstanceState.getDouble(ORIGIN_LNG);	
-			mapsHelper.placeOriginMarker(new LatLng(lat, lng), null, null);
-			
+		double lat, lng;
+		String title, snippet = null;
+		
+		if (savedInstanceState.containsKey(DEST_LAT)) {
 			lat = savedInstanceState.getDouble(DEST_LAT);
 			lng = savedInstanceState.getDouble(DEST_LNG);
-			mapsHelper.placeDestinationMarker(new LatLng(lat, lng), null, null);
-			
+			title = savedInstanceState.getString(DEST_TITLE);
+			snippet = savedInstanceState.getString(DEST_SNIPPET);
+			mapsHelper.placeDestinationMarker(new LatLng(lat, lng), title, snippet, false);			
+		}
+		
+		if (savedInstanceState.containsKey(ORIGIN_LAT)) {
+			lat = savedInstanceState.getDouble(ORIGIN_LAT);
+			lng = savedInstanceState.getDouble(ORIGIN_LNG);
+			title = savedInstanceState.getString(ORIGIN_TITLE);
+			mapsHelper.placeOriginMarker(new LatLng(lat, lng), title, snippet);
+
+			// If we have an origin, we by definition also have a destination, so we 
+			// previously plotted directions.
+			// TODO: Will cache directions in bundle to save doing this again
 			getDirections(mapsHelper.getOriginMarker().getPosition(), 
 					mapsHelper.getDestinationMarker().getPosition());
-		}
+		}		
 	}
 
 	/* (non-Javadoc)
@@ -195,17 +275,20 @@ public class GoToThereActivity extends Activity implements
 	 */
 	@Override
 	protected void onSaveInstanceState(Bundle outState) {
-		// Any other marker data (titles, snippets) will be recreated
-		// on restore via the getDirections call; we just need lats/lngs
-		Marker marker = mapsHelper.getOriginMarker();
-		if (marker != null) {
-			outState.putDouble(ORIGIN_LAT, marker.getPosition().latitude);
-			outState.putDouble(ORIGIN_LNG, marker.getPosition().longitude);
-		}
-		marker = mapsHelper.getDestinationMarker();
-		if (marker != null) {
-			outState.putDouble(DEST_LAT, marker.getPosition().latitude);
-			outState.putDouble(DEST_LNG, marker.getPosition().longitude);			
+		if (mapsHelper != null) {
+			Marker marker = mapsHelper.getOriginMarker();
+			if (marker != null) {
+				outState.putDouble(ORIGIN_LAT, marker.getPosition().latitude);
+				outState.putDouble(ORIGIN_LNG, marker.getPosition().longitude);
+				outState.putString(ORIGIN_TITLE, marker.getTitle());
+			}
+			marker = mapsHelper.getDestinationMarker();
+			if (marker != null) {
+				outState.putDouble(DEST_LAT, marker.getPosition().latitude);
+				outState.putDouble(DEST_LNG, marker.getPosition().longitude);
+				outState.putString(DEST_TITLE, marker.getTitle());
+				outState.putString(DEST_SNIPPET, marker.getSnippet());			
+			}
 		}
 		super.onSaveInstanceState(outState);
 	}
@@ -240,17 +323,22 @@ public class GoToThereActivity extends Activity implements
     	mapsHelper.getMap().moveCamera(CameraUpdateFactory.newLatLngZoom(centre, 16));
     	
     	// If the activity was started via a search, update suggestions
-    	// And reverse-geocode the address
+    	// and reverse-geocode the address
     	Intent intent = getIntent();
         if (intent.getAction().equals(Intent.ACTION_SEARCH)) {
         	String query = intent.getStringExtra(SearchManager.QUERY);
 
-    		SearchRecentSuggestions suggestions = 
-    			new SearchRecentSuggestions(this, 
-    					GoToThereSuggestionProvider.AUTHORITY, GoToThereSuggestionProvider.MODE);
+    		SearchRecentSuggestions suggestions = new SearchRecentSuggestions(this, 
+					GoToThereSuggestionProvider.AUTHORITY, GoToThereSuggestionProvider.MODE);
             suggestions.saveRecentQuery(query, null);
             
-            reverseGeocodeQuery(query);	            
+            Toast.makeText(this, R.string.reverse_geocoding_query, Toast.LENGTH_SHORT).show();
+            LatLng position = reverseGeocode(query);
+            if (position != null) {
+            	mapsHelper.placeDestinationMarker(position, query, getResources().getString(R.string.tap_hint_snippet), true);
+            } else {
+				Toast.makeText(this, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();
+            }
         }
     }
 
@@ -321,38 +409,57 @@ public class GoToThereActivity extends Activity implements
 	 * form the map, and remove any instance state pertaining to
 	 * this route.
 	 */
-//	private void cancelNavigation() {
-//		// Remove markers
-//		
-//		// Remove polyline
-//		
-//		// Remove instance state?
-//		
-//		actionMode.finish();
-//	}
+	private void cancelNavigation() {
+		mapsHelper.clearAll();		
+		// Remove instance state?
+	}
 
 	/**
-	 * Reverse-geocode the location the user typed into the search box, and centre the map
-	 * on it.
+	 * Reverse-geocode the location the user typed into the search box.
 	 */
-	private void reverseGeocodeQuery(String address) {
+	// TODO
+	private LatLng reverseGeocode(String address) {
 		Geocoder geo = new Geocoder(this, Locale.getDefault());
+		LatLng position = null;
 		try {
-			List<Address> addresses = geo.getFromLocationName(address, 10);			// Hmmmm, 1?
+			List<Address> addresses = geo.getFromLocationName(address, 1);
 			if (addresses.size() > 0) {
-				LatLng position = new LatLng(addresses.get(0).getLatitude(),
+				position = new LatLng(addresses.get(0).getLatitude(),
 						addresses.get(0).getLongitude());
-				mapsHelper.placeDestinationMarker(position, null, null);
-				if (servicesConnected()) {
-					getDirections(position);
-				}
-			} else {
-				Toast.makeText(this, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();
 			}
 		} catch (IOException ioe) {
 			Log.e(TAG, "Could not geocode '" + address + "'", ioe);
 			Toast.makeText(this, R.string.error_general_text, Toast.LENGTH_SHORT).show();
 		}
+		
+		return position;
+	}
+	
+	/**
+	 * Geocode the location provided by the user's map-tap.
+	 * @param latLng
+	 * @return
+	 */
+	// TODO
+	private String geocode(LatLng latLng) {
+		Geocoder geo = new Geocoder(this, Locale.getDefault());
+		String address = null;
+		try {
+			List<Address> addresses = geo.getFromLocation(latLng.latitude, latLng.longitude, 1);
+			if (addresses.size() > 0) {
+				Address addr = addresses.get(0);
+				address = addr.getAddressLine(0);
+				address += ", " + addr.getLocality();
+			} else {
+				Toast.makeText(this, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();
+			}
+			
+		} catch (IOException ioe) {
+			Log.e(TAG, "Could not geocode '" + latLng + "'", ioe);
+			Toast.makeText(this, R.string.error_general_text, Toast.LENGTH_SHORT).show();			
+		}
+		
+		return address;
 	}
 	
 	/**
