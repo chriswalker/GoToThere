@@ -12,8 +12,9 @@ import android.content.SharedPreferences;
 import android.provider.Settings;
 
 /**
+ * General utility methods.
+ * 
  * @author chris
- *
  */
 public class GoToThereUtil {
 
