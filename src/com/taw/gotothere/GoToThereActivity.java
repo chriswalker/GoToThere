@@ -97,17 +97,18 @@ public class GoToThereActivity extends Activity implements
 		 */
 		@Override
 		public void onMapClick(LatLng latLng) {
-			if (!mapsHelper.displayingRoute()) {
-				mapsHelper.placeDestinationMarker(latLng, getResources().getString(R.string.getting_address_text), null, true);
-				String address = geocode(latLng);
-				if (address != null) {
-					mapsHelper.updateDestinationMarkerText(address, getResources().getString(R.string.tap_hint_snippet));
+			if (networkConnected()) {
+				if (!mapsHelper.displayingRoute()) {
+					mapsHelper.placeDestinationMarker(latLng, getResources().getString(R.string.getting_address_text), null, true);
+					String address = geocode(latLng);
+					if (address != null) {
+						mapsHelper.updateDestinationMarkerText(address, getResources().getString(R.string.tap_hint_snippet));
+					}
 				}
+			} else {
+				// Hmmm
+				displayActionsDisabledToast();
 			}
-			
-				//			} else {
-//				Toast.makeText(this, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();				
-//			}
 		}
 	};
 	
@@ -119,7 +120,7 @@ public class GoToThereActivity extends Activity implements
 		 */
 		@Override
 		public void onInfoWindowClick(Marker marker) {
-			if (servicesConnected()) {
+			if (servicesConnected() && networkConnected()) {
 				// The destination marker was clicked
 				getDirections(marker.getPosition());
 				marker.hideInfoWindow();
@@ -130,7 +131,14 @@ public class GoToThereActivity extends Activity implements
 	/*
 	 * General activity overrides
 	 */
-	
+
+	/*
+	 * Only intent we're interested in is ACTION_SEARCH, but we defer
+   	 * handling it until we're connected to the location client - see onConnected()
+   	 * 
+	 * (non-Javadoc)
+	 * @see android.app.Activity#onCreate(android.os.Bundle)
+	 */
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -140,26 +148,16 @@ public class GoToThereActivity extends Activity implements
 			showFirstRunDialog();
 		}
         
-        if (networkConnected()) {
-        	mapsHelper = new MapsHelper(this);
-	        mapsHelper.getMap().setOnMapClickListener(mapClickListener);
-	        mapsHelper.getMap().setOnInfoWindowClickListener(infoWindowClickListener);
-	        
-	    	locationClient = new LocationClient(this, this, this);
-	    	
-	    	// Only intent we're interested in is ACTION_SEARCH, but we defer
-	    	// handling it until we're connected to the location client -
-	    	// see onConnected()
-	    	
-	    	// Set up for receiving network events, so we can respond to loss of
-	    	// signal or wifi
-	    	IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
-	        receiver = new NetworkReceiver();
-	        registerReceiver(receiver, filter);
-        } else {
-        	// If there is no network availability on startup, flash a dialog to
-        	// the user
+    	mapsHelper = new MapsHelper(this);
+        mapsHelper.getMap().setOnMapClickListener(mapClickListener);
+        mapsHelper.getMap().setOnInfoWindowClickListener(infoWindowClickListener);
+        
+    	locationClient = new LocationClient(this, this, this);
+    	
+        if (!networkConnected()) {
         	showNoNetworkDialog();
+        } else {
+        	registerNetworkReceiver();
         }
     }
 
@@ -168,14 +166,15 @@ public class GoToThereActivity extends Activity implements
 	 */
 	@Override
 	protected void onDestroy() {
-		super.onDestroy();
 		if (receiver != null) {
 			unregisterReceiver(receiver);
 		}
+		super.onDestroy();
 	}
 
-
-
+	/* (non-Javadoc)
+	 * @see android.app.Activity#onStart()
+	 */
 	@Override
 	protected void onStart() {
 		super.onStart();
@@ -184,6 +183,9 @@ public class GoToThereActivity extends Activity implements
 		}
 	}
 
+	/* (non-Javadoc)
+	 * @see android.app.Activity#onStop()
+	 */
 	@Override
 	protected void onStop() {
 		if (networkConnected()) {
@@ -192,6 +194,27 @@ public class GoToThereActivity extends Activity implements
 		super.onStop();
 	}
 
+	
+	
+	/* We may be resuming because the user has backed into the activity from
+	 * the settings, if they had a network issue and clicked on the Settings
+	 * button in the "No Network" dialog; we check if the NetworkReceiver is
+	 * set up, and if not register it.
+	 * 
+	 * (non-Javadoc)
+	 * @see android.app.Activity#onResume()
+	 */
+	@Override
+	protected void onResume() {
+		// register receivers in here if null
+		if (receiver == null) registerNetworkReceiver();
+		
+		super.onResume();
+	}
+
+	/* (non-Javadoc)
+	 * @see android.app.Activity#onCreateOptionsMenu(android.view.Menu)
+	 */
 	@Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.go_to_there, menu);
@@ -218,11 +241,13 @@ public class GoToThereActivity extends Activity implements
 		return false;
 	}
 
-	/**
-     * Handle results from other activities - currently just response
+	/* Handle results from other activities - currently just response
      * from Google Play Services, potentially called if the user has to
      * try and rectify a problem with the location services.
-     */
+	 *
+	 * (non-Javadoc)
+	 * @see android.app.Activity#onActivityResult(int, int, android.content.Intent)
+	 */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         switch (requestCode) {
@@ -297,6 +322,9 @@ public class GoToThereActivity extends Activity implements
      * Google Play Services implementations
      */
 
+	/* (non-Javadoc)
+	 * @see com.google.android.gms.common.GooglePlayServicesClient.OnConnectionFailedListener#onConnectionFailed(com.google.android.gms.common.ConnectionResult)
+	 */
 	@Override
 	public void onConnectionFailed(ConnectionResult connectionResult) {
         if (connectionResult.hasResolution()) {
@@ -312,9 +340,11 @@ public class GoToThereActivity extends Activity implements
         }
     }
 
-	/**
-	 * Once connected to the location service, get last known location
+	/* Once connected to the location service, get last known location
 	 * and pan the map camera to it.
+	 *
+	 * (non-Javadoc)
+	 * @see com.google.android.gms.common.GooglePlayServicesClient.ConnectionCallbacks#onConnected(android.os.Bundle)
 	 */
 	@Override
 	public void onConnected(Bundle bundle) { 
@@ -517,5 +547,24 @@ public class GoToThereActivity extends Activity implements
             dialogFragment.setDialog(errorDialog);
             dialogFragment.show(getFragmentManager(), "Location Updates");
         }
+    }
+    
+    /**
+     * Display a toast to the user indicated map interactions have been disabled
+     * due to no network connectivity. We have to do it here as there is no
+     * access to a context from within the OnMapClickListener, alas.
+     */
+    private void displayActionsDisabledToast() {
+		Toast.makeText(this, R.string.map_actions_disabled, Toast.LENGTH_SHORT).show();
+    }
+    
+    /**
+     * Register the NetworkReceiver to get updates about network
+     * availability
+     */
+    private void registerNetworkReceiver() {
+    	IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
+        receiver = new NetworkReceiver();
+        registerReceiver(receiver, filter);
     }
 }
