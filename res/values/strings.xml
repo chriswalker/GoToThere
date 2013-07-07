@@ -38,4 +38,5 @@
     <!-- Toasts -->
     <string name="reverse_geocoding_query">Getting map location for address&#8230;</string>
     <string name="no_network_available">Unable to connect to the internet - please check settings</string>
+    <string name="map_actions_disabled">Map interactions disabled until network connectivity is back</string>
 </resources>
