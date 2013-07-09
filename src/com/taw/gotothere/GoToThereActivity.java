@@ -154,9 +154,7 @@ public class GoToThereActivity extends Activity implements
         
     	locationClient = new LocationClient(this, this, this);
     	
-        if (!networkConnected()) {
-        	showNoNetworkDialog();
-        } else {
+        if (snetworkConnected()) {
         	registerNetworkReceiver();
         }
     }
@@ -506,18 +504,6 @@ public class GoToThereActivity extends Activity implements
         
         return true;
 	}
-	
-	/**
-	 * Display the No Network Access alert dialog.
-	 */
-	private void showNoNetworkDialog() {
-	    Dialog dialog = GoToThereUtil.getNoNetworkDialog(this);
-	    if (dialog != null) {
-            GoToThereDialogFragment dialogFragment = new GoToThereDialogFragment();
-            dialogFragment.setDialog(dialog);
-            dialogFragment.show(getFragmentManager(), "No Network");	    	
-	    }
-	}
 
 	/**
 	 * Display the Terms and Conditions alert dialog.
@@ -564,7 +550,7 @@ public class GoToThereActivity extends Activity implements
      */
     private void registerNetworkReceiver() {
     	IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
-        receiver = new NetworkReceiver();
+        receiver = new NetworkReceiver(locationClient);
         registerReceiver(receiver, filter);
     }
 }
