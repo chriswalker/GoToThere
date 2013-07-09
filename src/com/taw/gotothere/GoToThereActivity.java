@@ -154,7 +154,7 @@ public class GoToThereActivity extends Activity implements
         
     	locationClient = new LocationClient(this, this, this);
     	
-        if (snetworkConnected()) {
+        if (networkConnected()) {
         	registerNetworkReceiver();
         }
     }
