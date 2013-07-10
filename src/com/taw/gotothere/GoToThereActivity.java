@@ -1,9 +1,5 @@
 package com.taw.gotothere;
 
-import java.io.IOException;
-import java.util.List;
-import java.util.Locale;
-
 import android.app.Activity;
 import android.app.Dialog;
 import android.app.SearchManager;
@@ -11,8 +7,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.IntentSender;
-import android.location.Address;
-import android.location.Geocoder;
 import android.location.Location;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -31,7 +25,6 @@ import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.location.LocationClient;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.model.LatLng;
-import com.google.android.gms.maps.model.Marker;
 import com.taw.gotothere.fragment.GoToThereDialogFragment;
 import com.taw.gotothere.fragment.GoToThereMapFragment;
 import com.taw.gotothere.provider.GoToThereSuggestionProvider;
@@ -57,22 +50,6 @@ public class GoToThereActivity extends Activity implements
 	
 	/** Broadcast receiver for receiving network events. */
 	private NetworkReceiver receiver;	
-	// Instance state keys
-	
-	/** Key for origin latitude. */
-	private static final String ORIGIN_LAT = "origin_lat";
-	/** Key for origin longitude. */
-	private static final String ORIGIN_LNG = "origin_lng";
-	/** Key for origin address (text). */
-	private static final String ORIGIN_TITLE = "origin_text";
-	/** Key for destination latitude. */
-	private static final String DEST_LAT = "dest_lat";
-	/** Key for destination latitude. */
-	private static final String DEST_LNG = "dest_lng";
-	/** Key for destination address (text). */
-	private static final String DEST_TITLE = "dest_text";
-	/** Key for destination snippet. */
-	private static final String DEST_SNIPPET = "dest_snippet";
 		
 // General activity overrides
 
@@ -201,62 +178,7 @@ public class GoToThereActivity extends Activity implements
                 }
         }
      }
-    
-	/* (non-Javadoc)
-	 * @see android.app.Activity#onRestoreInstanceState(android.os.Bundle)
-	 */
-	@Override
-	protected void onRestoreInstanceState(Bundle savedInstanceState) {
-		super.onRestoreInstanceState(savedInstanceState);
-		
-		double lat, lng;
-		String title, snippet = null;
-		
-		if (savedInstanceState.containsKey(DEST_LAT)) {
-			lat = savedInstanceState.getDouble(DEST_LAT);
-			lng = savedInstanceState.getDouble(DEST_LNG);
-			title = savedInstanceState.getString(DEST_TITLE);
-			snippet = savedInstanceState.getString(DEST_SNIPPET);
-			mapFragment.placeDestinationMarker(new LatLng(lat, lng), title, snippet, false);			
-		}
-		
-		if (savedInstanceState.containsKey(ORIGIN_LAT)) {
-			lat = savedInstanceState.getDouble(ORIGIN_LAT);
-			lng = savedInstanceState.getDouble(ORIGIN_LNG);
-			title = savedInstanceState.getString(ORIGIN_TITLE);
-			mapFragment.placeOriginMarker(new LatLng(lat, lng), title, snippet);
-
-			// If we have an origin, we by definition also have a destination, so we 
-			// previously plotted directions.
-			// TODO: Will cache directions in bundle to save doing this again
-//			getDirections(mapsHelper.getOriginMarker().getPosition(), 
-//					mapsHelper.getDestinationMarker().getPosition());
-			
-		}		
-	}
-
-	/* (non-Javadoc)
-	 * @see android.app.Activity#onSaveInstanceState(android.os.Bundle)
-	 */
-	@Override
-	protected void onSaveInstanceState(Bundle outState) {
-		Marker marker = mapFragment.getOriginMarker();
-		if (marker != null) {
-			outState.putDouble(ORIGIN_LAT, marker.getPosition().latitude);
-			outState.putDouble(ORIGIN_LNG, marker.getPosition().longitude);
-			outState.putString(ORIGIN_TITLE, marker.getTitle());
-		}
-		marker = mapFragment.getDestinationMarker();
-		if (marker != null) {
-			outState.putDouble(DEST_LAT, marker.getPosition().latitude);
-			outState.putDouble(DEST_LNG, marker.getPosition().longitude);
-			outState.putString(DEST_TITLE, marker.getTitle());
-			outState.putString(DEST_SNIPPET, marker.getSnippet());			
-		}
-
-		super.onSaveInstanceState(outState);
-	}
-    
+        
     /*
      * Google Play Services implementations
      */
