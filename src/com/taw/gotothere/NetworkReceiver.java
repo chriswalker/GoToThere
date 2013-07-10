@@ -37,7 +37,7 @@ public class NetworkReceiver extends BroadcastReceiver {
 	    	Toast.makeText(context, R.string.no_network_available, Toast.LENGTH_SHORT).show();
 	    } else {
 	    	// (re)connect to location service
-			locationClient.connect();
+//			locationClient.connect();
 	    }
 	}
 
