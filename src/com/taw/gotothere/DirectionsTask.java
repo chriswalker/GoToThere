@@ -14,11 +14,13 @@ import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.JsonObjectParser;
 import com.google.api.client.json.jackson2.JacksonFactory;
+import com.taw.gotothere.fragment.GoToThereMapFragment;
 import com.taw.gotothere.model.DirectionsResult;
 
 public class DirectionsTask extends AsyncTask<Void, Integer, DirectionsResult> {
-	/** Reference to calling activity. */
-	private GoToThereActivity activity;
+	
+	/** Reference to parent fragment. */
+	private GoToThereMapFragment fragment;
 	
 	/** Start point of route. */
 	private LatLng origin;
@@ -26,10 +28,10 @@ public class DirectionsTask extends AsyncTask<Void, Integer, DirectionsResult> {
 	private LatLng destination;
 
 
-	public DirectionsTask(GoToThereActivity activity, LatLng origin, LatLng destination) {
+	public DirectionsTask(GoToThereMapFragment fragment, LatLng origin, LatLng destination) {
 		super();
-
-		this.activity = activity;
+		
+		this.fragment = fragment;
 		
 		this.origin = origin;
 		this.destination = destination;		
@@ -64,9 +66,8 @@ public class DirectionsTask extends AsyncTask<Void, Integer, DirectionsResult> {
 
 	@Override
 	protected void onPostExecute(DirectionsResult route) {
-		// TODO: Will be changing to avoid references to non-existant actvities
-		// when activity killed due to screen rotation
-		activity.showDirections(route);
+		// Tell the fragment to display the route
+		fragment.showDirections(route);
 	}
 
 	/**
