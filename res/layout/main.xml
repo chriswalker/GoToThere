@@ -6,8 +6,8 @@
 
     <fragment
         android:id="@+id/map"
-        android:name="com.google.android.gms.maps.MapFragment"
+        android:name="com.taw.gotothere.fragment.GoToThereMapFragment"
         android:layout_width="fill_parent"
         android:layout_height="fill_parent" />
-
+    
 </RelativeLayout>
