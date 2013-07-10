@@ -6,7 +6,6 @@ import java.util.Locale;
 
 import android.app.Activity;
 import android.app.Dialog;
-import android.app.ProgressDialog;
 import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
@@ -17,7 +16,6 @@ import android.location.Geocoder;
 import android.location.Location;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.provider.SearchRecentSuggestions;
 import android.util.Log;
@@ -32,12 +30,10 @@ import com.google.android.gms.common.GooglePlayServicesClient.OnConnectionFailed
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.location.LocationClient;
 import com.google.android.gms.maps.CameraUpdateFactory;
-import com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener;
-import com.google.android.gms.maps.GoogleMap.OnMapClickListener;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.taw.gotothere.fragment.GoToThereDialogFragment;
-import com.taw.gotothere.model.DirectionsResult;
+import com.taw.gotothere.fragment.GoToThereMapFragment;
 import com.taw.gotothere.provider.GoToThereSuggestionProvider;
 
 public class GoToThereActivity extends Activity implements
@@ -47,9 +43,20 @@ public class GoToThereActivity extends Activity implements
 	/** Logging. */
 	private static final String TAG = "GoToThereActivity";
 	
-	/** Helper for maps interactions. */
-	private MapsHelper mapsHelper = null;
+	/** MapFragment containing the map view. */
+	private GoToThereMapFragment mapFragment;
+
+	/** Request code for return by Services. */
+	private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
 	
+	/** Location client, obtained from Play Services. */
+	private LocationClient locationClient;
+
+	/** Shared preference, indicating whether user has accepted the 'terms'. */
+	private static final String ACCEPTED_TOC = "ACCEPTED_TOC";
+	
+	/** Broadcast receiver for receiving network events. */
+	private NetworkReceiver receiver;	
 	// Instance state keys
 	
 	/** Key for origin latitude. */
@@ -66,74 +73,10 @@ public class GoToThereActivity extends Activity implements
 	private static final String DEST_TITLE = "dest_text";
 	/** Key for destination snippet. */
 	private static final String DEST_SNIPPET = "dest_snippet";
-	
+		
+// General activity overrides
 
-	// Misc
-	
-	/** Request code for return by Services. */
-	private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
-	
-	/** Location client, obtained from Play Services. */
-	private LocationClient locationClient;
-	
-	/** AsyncTask to retrieve directions. */
-	private DirectionsTask directionsTask;
-	
-	/** Progress dialog for getting directions. */
-	private ProgressDialog progress;
-
-	/** Shared preference, indicating whether user has accepted the 'terms'. */
-	private static final String ACCEPTED_TOC = "ACCEPTED_TOC";
-	
-	/** Broadcast receiver for receiving network events. */
-	private NetworkReceiver receiver;
-	
-	/** Click listener for the map. */
-	private OnMapClickListener mapClickListener = new OnMapClickListener() {
-
-		/**
-		 * Display a marker where the user taps, geocode the map position into
-		 * an address for the InfoWindow text, and show the InfoWindow.
-		 */
-		@Override
-		public void onMapClick(LatLng latLng) {
-			if (networkConnected()) {
-				if (!mapsHelper.displayingRoute()) {
-					mapsHelper.placeDestinationMarker(latLng, getResources().getString(R.string.getting_address_text), null, true);
-					String address = geocode(latLng);
-					if (address != null) {
-						mapsHelper.updateDestinationMarkerText(address, getResources().getString(R.string.tap_hint_snippet));
-					}
-				}
-			} else {
-				// Hmmm
-				displayActionsDisabledToast();
-			}
-		}
-	};
-	
-	/** Click listener for info window clicks. */
-	private OnInfoWindowClickListener infoWindowClickListener = new OnInfoWindowClickListener() {
-
-		/* (non-Javadoc)
-		 * @see com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener#onInfoWindowClick(com.google.android.gms.maps.model.Marker)
-		 */
-		@Override
-		public void onInfoWindowClick(Marker marker) {
-			if (servicesConnected() && networkConnected()) {
-				// The destination marker was clicked
-				getDirections(marker.getPosition());
-				marker.hideInfoWindow();
-			}			
-		}
-	};
-	
-	/*
-	 * General activity overrides
-	 */
-
-	/*
-	 * Only intent we're interested in is ACTION_SEARCH, but we defer
+	/* Only intent we're interested in is ACTION_SEARCH, but we defer
    	 * handling it until we're connected to the location client - see onConnected()
    	 * 
 	 * (non-Javadoc)
@@ -148,9 +91,7 @@ public class GoToThereActivity extends Activity implements
 			showFirstRunDialog();
 		}
         
-    	mapsHelper = new MapsHelper(this);
-        mapsHelper.getMap().setOnMapClickListener(mapClickListener);
-        mapsHelper.getMap().setOnInfoWindowClickListener(infoWindowClickListener);
+		mapFragment = (GoToThereMapFragment) getFragmentManager().findFragmentById(R.id.map);
         
     	locationClient = new LocationClient(this, this, this);
     	
@@ -276,20 +217,21 @@ public class GoToThereActivity extends Activity implements
 			lng = savedInstanceState.getDouble(DEST_LNG);
 			title = savedInstanceState.getString(DEST_TITLE);
 			snippet = savedInstanceState.getString(DEST_SNIPPET);
-			mapsHelper.placeDestinationMarker(new LatLng(lat, lng), title, snippet, false);			
+			mapFragment.placeDestinationMarker(new LatLng(lat, lng), title, snippet, false);			
 		}
 		
 		if (savedInstanceState.containsKey(ORIGIN_LAT)) {
 			lat = savedInstanceState.getDouble(ORIGIN_LAT);
 			lng = savedInstanceState.getDouble(ORIGIN_LNG);
 			title = savedInstanceState.getString(ORIGIN_TITLE);
-			mapsHelper.placeOriginMarker(new LatLng(lat, lng), title, snippet);
+			mapFragment.placeOriginMarker(new LatLng(lat, lng), title, snippet);
 
 			// If we have an origin, we by definition also have a destination, so we 
 			// previously plotted directions.
 			// TODO: Will cache directions in bundle to save doing this again
-			getDirections(mapsHelper.getOriginMarker().getPosition(), 
-					mapsHelper.getDestinationMarker().getPosition());
+//			getDirections(mapsHelper.getOriginMarker().getPosition(), 
+//					mapsHelper.getDestinationMarker().getPosition());
+			
 		}		
 	}
 
@@ -298,21 +240,20 @@ public class GoToThereActivity extends Activity implements
 	 */
 	@Override
 	protected void onSaveInstanceState(Bundle outState) {
-		if (mapsHelper != null) {
-			Marker marker = mapsHelper.getOriginMarker();
-			if (marker != null) {
-				outState.putDouble(ORIGIN_LAT, marker.getPosition().latitude);
-				outState.putDouble(ORIGIN_LNG, marker.getPosition().longitude);
-				outState.putString(ORIGIN_TITLE, marker.getTitle());
-			}
-			marker = mapsHelper.getDestinationMarker();
-			if (marker != null) {
-				outState.putDouble(DEST_LAT, marker.getPosition().latitude);
-				outState.putDouble(DEST_LNG, marker.getPosition().longitude);
-				outState.putString(DEST_TITLE, marker.getTitle());
-				outState.putString(DEST_SNIPPET, marker.getSnippet());			
-			}
+		Marker marker = mapFragment.getOriginMarker();
+		if (marker != null) {
+			outState.putDouble(ORIGIN_LAT, marker.getPosition().latitude);
+			outState.putDouble(ORIGIN_LNG, marker.getPosition().longitude);
+			outState.putString(ORIGIN_TITLE, marker.getTitle());
 		}
+		marker = mapFragment.getDestinationMarker();
+		if (marker != null) {
+			outState.putDouble(DEST_LAT, marker.getPosition().latitude);
+			outState.putDouble(DEST_LNG, marker.getPosition().longitude);
+			outState.putString(DEST_TITLE, marker.getTitle());
+			outState.putString(DEST_SNIPPET, marker.getSnippet());			
+		}
+
 		super.onSaveInstanceState(outState);
 	}
     
@@ -348,7 +289,7 @@ public class GoToThereActivity extends Activity implements
 	public void onConnected(Bundle bundle) { 
     	Location loc = locationClient.getLastLocation();
     	LatLng centre = new LatLng(loc.getLatitude(), loc.getLongitude());
-    	mapsHelper.getMap().moveCamera(CameraUpdateFactory.newLatLngZoom(centre, 16));
+    	mapFragment.getMap().moveCamera(CameraUpdateFactory.newLatLngZoom(centre, 16));
     	
     	// If the activity was started via a search, update suggestions
     	// and reverse-geocode the address
@@ -361,9 +302,9 @@ public class GoToThereActivity extends Activity implements
             suggestions.saveRecentQuery(query, null);
             
             Toast.makeText(this, R.string.reverse_geocoding_query, Toast.LENGTH_SHORT).show();
-            LatLng position = reverseGeocode(query);
+            LatLng position = GoToThereUtil.reverseGeocode(this, query);
             if (position != null) {
-            	mapsHelper.placeDestinationMarker(position, query, getResources().getString(R.string.tap_hint_snippet), true);
+            	mapFragment.placeDestinationMarker(position, query, getResources().getString(R.string.tap_hint_snippet), true);
             } else {
 				Toast.makeText(this, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();
             }
@@ -372,15 +313,28 @@ public class GoToThereActivity extends Activity implements
 
 	@Override
 	public void onDisconnected() { }
+      
+	/**
+	 * Determines whether the device has internet connectivity; if not
+	 * we won't be able to get map data or directions.
+	 * @return
+	 */
+	public boolean networkConnected() {
+	    ConnectivityManager connMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo networkInfo = connMgr.getActiveNetworkInfo();
+        if (networkInfo == null || !networkInfo.isConnected()) {
+        	return false;
+        }
         
-// Private methods
-   
+        return true;
+	}
+
 	/**
 	 * Test if Google Play Services is available on the user's device,
 	 * and take action if not, or if the version is lower than we require
 	 * @return true if available
 	 */
-    private boolean servicesConnected() {
+    public boolean servicesConnected() {
         int resultCode = GooglePlayServicesUtil.isGooglePlayServicesAvailable(this);
         if (ConnectionResult.SUCCESS == resultCode) {
             Log.d(TAG, "Google Play services is available.");
@@ -392,45 +346,15 @@ public class GoToThereActivity extends Activity implements
         
         return false; // hmmm
     }
-    
-    /**
-	 * Start a thread to retrieve the directions from the user's current location
-	 * to their selected point. 
-     * @param end End point the user has selected
-     */
-	private void getDirections(LatLng end) {
-		Location loc = locationClient.getLastLocation();
-		getDirections(new LatLng(loc.getLatitude(), loc.getLongitude()), end);
-	}
-
-	/**
-	 * Start a thread to retrieve directions from the supplied start point to the
-	 * selected end point.
-	 * @param start LatLng representing the start point
-	 * @param end LatLng representing the end point
-	 */
-	private void getDirections(LatLng start, LatLng end) {
-		if (directionsTask == null || directionsTask.getStatus().equals(AsyncTask.Status.FINISHED)) {
-			directionsTask = new DirectionsTask(this, start, end); 
-			directionsTask.execute();
-			
-			// Show progress dialog box
-			progress = new ProgressDialog(this);
-			progress.setMessage(getResources().getString(R.string.progress_directions));
-			progress.show();
-		}				
-	}
 	
-    /**
-     * Process DirectionsTask results by generating route display - 
-     * a polyline of the route, plus a start marker on the map. Destination
-     * marker has already been placed by the user, so we just add some
-     * details to it.
-     */
-	public void showDirections(DirectionsResult directions) {
-		mapsHelper.showDirections(directions);
-		progress.cancel();
-	}
+ 	/**
+	 * @return the locationClient
+	 */
+	public LocationClient getLocationClient() {
+		return locationClient;
+	}   
+    
+// Private methods
 	
 	/**
 	 * Cancel the navigation display - remove markers and polyline
@@ -438,73 +362,58 @@ public class GoToThereActivity extends Activity implements
 	 * this route.
 	 */
 	private void cancelNavigation() {
-		mapsHelper.clearAll();		
+		mapFragment.clearAll();		
 		// Remove instance state?
 	}
 
-	/**
-	 * Reverse-geocode the location the user typed into the search box.
-	 */
-	// TODO
-	private LatLng reverseGeocode(String address) {
-		Geocoder geo = new Geocoder(this, Locale.getDefault());
-		LatLng position = null;
-		try {
-			List<Address> addresses = geo.getFromLocationName(address, 1);
-			if (addresses.size() > 0) {
-				position = new LatLng(addresses.get(0).getLatitude(),
-						addresses.get(0).getLongitude());
-			}
-		} catch (IOException ioe) {
-			Log.e(TAG, "Could not geocode '" + address + "'", ioe);
-			Toast.makeText(this, R.string.error_general_text, Toast.LENGTH_SHORT).show();
-		}
-		
-		return position;
-	}
+//	/**
+//	 * Reverse-geocode the location the user typed into the search box.
+//	 */
+//	// TODO
+//	private LatLng reverseGeocode(String address) {
+//		Geocoder geo = new Geocoder(this, Locale.getDefault());
+//		LatLng position = null;
+//		try {
+//			List<Address> addresses = geo.getFromLocationName(address, 1);
+//			if (addresses.size() > 0) {
+//				position = new LatLng(addresses.get(0).getLatitude(),
+//						addresses.get(0).getLongitude());
+//			}
+//		} catch (IOException ioe) {
+//			Log.e(TAG, "Could not geocode '" + address + "'", ioe);
+//			Toast.makeText(this, R.string.error_general_text, Toast.LENGTH_SHORT).show();
+//		}
+//		
+//		return position;
+//	}
 	
-	/**
-	 * Geocode the location provided by the user's map-tap.
-	 * @param latLng
-	 * @return
-	 */
-	// TODO
-	private String geocode(LatLng latLng) {
-		Geocoder geo = new Geocoder(this, Locale.getDefault());
-		String address = null;
-		try {
-			List<Address> addresses = geo.getFromLocation(latLng.latitude, latLng.longitude, 1);
-			if (addresses.size() > 0) {
-				Address addr = addresses.get(0);
-				address = addr.getAddressLine(0);
-				address += ", " + addr.getLocality();
-			} else {
-				Toast.makeText(this, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();
-			}
-			
-		} catch (IOException ioe) {
-			Log.e(TAG, "Could not geocode '" + latLng + "'", ioe);
-			Toast.makeText(this, R.string.error_general_text, Toast.LENGTH_SHORT).show();			
-		}
-		
-		return address;
-	}
+//	/**
+//	 * Geocode the location provided by the user's map-tap.
+//	 * @param latLng
+//	 * @return
+//	 */
+//	// TODO
+//	private String geocode(LatLng latLng) {
+//		Geocoder geo = new Geocoder(this, Locale.getDefault());
+//		String address = null;
+//		try {
+//			List<Address> addresses = geo.getFromLocation(latLng.latitude, latLng.longitude, 1);
+//			if (addresses.size() > 0) {
+//				Address addr = addresses.get(0);
+//				address = addr.getAddressLine(0);
+//				address += ", " + addr.getLocality();
+//			} else {
+//				Toast.makeText(this, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();
+//			}
+//			
+//		} catch (IOException ioe) {
+//			Log.e(TAG, "Could not geocode '" + latLng + "'", ioe);
+//			Toast.makeText(this, R.string.error_general_text, Toast.LENGTH_SHORT).show();			
+//		}
+//		
+//		return address;
+//	}
 	
-	/**
-	 * Determines whether the device has internet connectivity; if not
-	 * we won't be able to get map data or directions.
-	 * @return
-	 */
-	private boolean networkConnected() {
-	    ConnectivityManager connMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo networkInfo = connMgr.getActiveNetworkInfo();
-        if (networkInfo == null || !networkInfo.isConnected()) {
-        	return false;
-        }
-        
-        return true;
-	}
-
 	/**
 	 * Display the Terms and Conditions alert dialog.
 	 */
@@ -534,16 +443,7 @@ public class GoToThereActivity extends Activity implements
             dialogFragment.show(getFragmentManager(), "Location Updates");
         }
     }
-    
-    /**
-     * Display a toast to the user indicated map interactions have been disabled
-     * due to no network connectivity. We have to do it here as there is no
-     * access to a context from within the OnMapClickListener, alas.
-     */
-    private void displayActionsDisabledToast() {
-		Toast.makeText(this, R.string.map_actions_disabled, Toast.LENGTH_SHORT).show();
-    }
-    
+        
     /**
      * Register the NetworkReceiver to get updates about network
      * availability
