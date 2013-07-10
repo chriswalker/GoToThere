@@ -3,13 +3,22 @@
  */
 package com.taw.gotothere;
 
+import java.io.IOException;
+import java.util.List;
+import java.util.Locale;
+
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.Context;
 import android.content.DialogInterface;
-import android.content.Intent;
 import android.content.SharedPreferences;
-import android.provider.Settings;
+import android.location.Address;
+import android.location.Geocoder;
+import android.util.Log;
+import android.widget.Toast;
+
+import com.google.android.gms.maps.model.LatLng;
 
 /**
  * General utility methods.
@@ -18,6 +27,9 @@ import android.provider.Settings;
  */
 public class GoToThereUtil {
 
+	/** Logging tag. */
+	private static final String TAG = GoToThereUtil.class.getName();
+	
 	// TODO - create constants file
 	/** Shared preference, indicating whether user has accepted the 'terms'. */
 	private static final String ACCEPTED_TOC = "ACCEPTED_TOC";
@@ -46,5 +58,54 @@ public class GoToThereUtil {
 		    		}
 		       })
 	       .create();
+	}
+	
+	/**
+	 * Reverse-geocode the location the user typed into the search box.
+	 */
+	// TODO
+	public static LatLng reverseGeocode(Context context, String address) {
+		Geocoder geo = new Geocoder(context, Locale.getDefault());
+		LatLng position = null;
+		try {
+			List<Address> addresses = geo.getFromLocationName(address, 1);
+			if (addresses.size() > 0) {
+				position = new LatLng(addresses.get(0).getLatitude(),
+						addresses.get(0).getLongitude());
+			}
+		} catch (IOException ioe) {
+			Log.e(TAG, "Could not geocode '" + address + "'", ioe);
+			//Toast.makeText(context, R.string.error_general_text, Toast.LENGTH_SHORT).show();
+			// Caller deals with a null position
+		}
+		
+		return position;
+	}
+	
+	/**
+	 * Geocode the location provided by the user's map-tap.
+	 * @param latLng
+	 * @return
+	 */
+	// TODO
+	public static String geocode(Context context, LatLng latLng) {
+		Geocoder geo = new Geocoder(context, Locale.getDefault());
+		String address = null;
+		try {
+			List<Address> addresses = geo.getFromLocation(latLng.latitude, latLng.longitude, 1);
+			if (addresses.size() > 0) {
+				Address addr = addresses.get(0);
+				address = addr.getAddressLine(0);
+				address += ", " + addr.getLocality();
+			} else {
+				Toast.makeText(context, R.string.error_not_found_text, Toast.LENGTH_SHORT).show();
+			}
+			
+		} catch (IOException ioe) {
+			Log.e(TAG, "Could not geocode '" + latLng + "'", ioe);
+			Toast.makeText(context, R.string.error_general_text, Toast.LENGTH_SHORT).show();			
+		}
+		
+		return address;
 	}
 }
