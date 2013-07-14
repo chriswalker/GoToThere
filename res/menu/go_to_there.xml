@@ -2,7 +2,7 @@
     <item 
         android:id="@+id/action_search"
         android:title="@string/address_hint"
-        android:icon="@android:drawable/ic_menu_search"
+        android:icon="@drawable/ic_menu_search_holo_light"
         android:showAsAction="ifRoom|collapseActionView"
         android:actionViewClass="android.widget.SearchView" />
     <!--  May remove -->
